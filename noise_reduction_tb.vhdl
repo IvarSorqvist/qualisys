@@ -90,6 +90,8 @@ END;
 signal test_integer : integer;
 signal test_std : std_logic_vector(7 downto 0) := x"FF";
 
+signal check_vector : std_logic_vector(63 downto 0);
+
 begin
 
     UUT : component noise_reduction
@@ -110,7 +112,7 @@ begin
 
     
     tb_clk <= NOT tb_clk after 5 ns; -- 100 Mhz
-    tb_rst <= '1' after 1 us;
+    tb_rst <= '1' after 20 ns;
 
     test_integer <= to_integer(unsigned(test_std));
 
@@ -121,33 +123,88 @@ begin
     read_in_file: process
         constant file_in_name   : string := "test_input.txt";
         file file_in_pointer    : text;
-        variable line_content   : string(1 to 23); -- in line
-        variable line_num       : line;
-        variable filestatus     : file_open_status;
+        variable line_in_content   : string(1 to 23); -- in line
+        variable line_in_num       : line;
+        variable filestatus_in     : file_open_status;
+
+        constant file_check_name   : string := "test_check.txt";
+        file file_check_pointer    : text;
+        variable line_check_content   : string(1 to 23); -- in line
+        variable line_check_num       : line;
+        variable filestatus_check     : file_open_status;
+
+        variable counter    : integer := 0;
 
         variable start          : boolean := false;
     begin
         tb_data_in <= x"0000000000000000";
         wait until tb_rst = '1'; -- start first when rst says its okay
 
-        file_open(filestatus, file_in_pointer, file_in_name, read_mode);
-        report file_in_name & LF & HT & "file_open_status = " &
-                            file_open_status'image(filestatus);
-        while not endfile(file_in_pointer) loop
+        file_open(filestatus_in, file_in_pointer, file_in_name, read_mode);
+        report file_in_name & LF & HT & "file_open_status file in = " &
+                            file_open_status'image(filestatus_in);
+
+        file_open(filestatus_check, file_check_pointer, file_check_name, read_mode);
+        report file_in_name & LF & HT & "file_open_status file check = " &
+                            file_open_status'image(filestatus_check);
+        while not endfile(file_check_pointer) loop
             wait until rising_edge(tb_clk); -- change once per clock
-            readline(file_in_pointer, line_num);
-            read(line_num, line_content);
-            --report real'image(line_content);
-            report line_content(1 to 23);
-            tb_data_in(63 downto 0) <= hexchar2bin(line_content(1)) & hexchar2bin(line_content(2))
-                    & hexchar2bin(line_content(4)) & hexchar2bin(line_content(5))
-                    & hexchar2bin(line_content(7)) & hexchar2bin(line_content(8))
-                    & hexchar2bin(line_content(10)) & hexchar2bin(line_content(11))
-                    & hexchar2bin(line_content(13)) & hexchar2bin(line_content(14))
-                    & hexchar2bin(line_content(16)) & hexchar2bin(line_content(17))
-                    & hexchar2bin(line_content(19)) & hexchar2bin(line_content(20))
-                    & hexchar2bin(line_content(22)) & hexchar2bin(line_content(23))
-                    ;
+            --report to_hstring(tb_data_in);
+            counter := counter + 1;
+            if not endfile(file_in_pointer) then
+                
+                readline(file_in_pointer, line_in_num);
+                read(line_in_num, line_in_content);
+                --report real'image(line_in_content);
+                -- report line_in_content(1 to 23);
+                tb_data_in(63 downto 0) <= hexchar2bin(line_in_content(1)) & hexchar2bin(line_in_content(2))
+                        & hexchar2bin(line_in_content(4)) & hexchar2bin(line_in_content(5))
+                        & hexchar2bin(line_in_content(7)) & hexchar2bin(line_in_content(8))
+                        & hexchar2bin(line_in_content(10)) & hexchar2bin(line_in_content(11))
+                        & hexchar2bin(line_in_content(13)) & hexchar2bin(line_in_content(14))
+                        & hexchar2bin(line_in_content(16)) & hexchar2bin(line_in_content(17))
+                        & hexchar2bin(line_in_content(19)) & hexchar2bin(line_in_content(20))
+                        & hexchar2bin(line_in_content(22)) & hexchar2bin(line_in_content(23));
+                if line_in_content = "FF BF CA CB CC CE CD CF" then
+                    tb_eof_in <= '1';
+                end if;
+            end if;
+            
+            if counter > 3 then
+                if line_check_content = "AB AB AB AD AE AF BA BC" then
+                    assert tb_sof_out = '1' report "sof_out not 1!" severity FAILURE; 
+                end if;
+                assert tb_eof_out = '0' report "eof_out is not supposed to be 1" severity FAILURE;
+                -- start comparing output with expected output
+                readline(file_check_pointer, line_check_num);
+                read(line_check_num, line_check_content);
+                --report real'image(line_check_content);
+                --report line_check_content(1 to 23);
+                
+                check_vector(63 downto 0) <= hexchar2bin(line_check_content(1)) & hexchar2bin(line_check_content(2))
+                    & hexchar2bin(line_check_content(4)) & hexchar2bin(line_check_content(5))
+                    & hexchar2bin(line_check_content(7)) & hexchar2bin(line_check_content(8))
+                    & hexchar2bin(line_check_content(10)) & hexchar2bin(line_check_content(11))
+                    & hexchar2bin(line_check_content(13)) & hexchar2bin(line_check_content(14))
+                    & hexchar2bin(line_check_content(16)) & hexchar2bin(line_check_content(17))
+                    & hexchar2bin(line_check_content(19)) & hexchar2bin(line_check_content(20))
+                    & hexchar2bin(line_check_content(22)) & hexchar2bin(line_check_content(23));
+
+                wait until falling_edge(tb_clk);
+                --report to_hstring(tb_data_out);
+                --report to_hstring(check_vector);
+                -- quit when reaching last test vector
+                --assert check_vector /= x"0000000000000000" report "Last test vector reached => quitting"
+                --                                            severity FAILURE;
+                
+                assert tb_data_out = check_vector report integer'image(counter - 3) &
+                                                        " __ Data out: " & to_hstring(tb_data_out) & LF &
+                                                        "                   " &
+                "                                            Check out: " & to_hstring(check_vector) 
+                                                        severity WARNING;
+                
+            end if;
+
 
             if not start then
                 tb_sof_in <= '1'; -- first input
@@ -155,11 +212,11 @@ begin
             end if;
             tb_valid_in <= '1'; -- Valid input
 
-            assert tb_sof_out = '0' report "SOF out = 1" severity WARNING;
+            --assert tb_sof_out = '0' report "SOF out = 1" severity WARNING;
 
-            --report to_hstring(hexchar2bin(line_content(4)));
-            report to_hstring(tb_data_in);
-            report to_hstring(tb_data_out);
+            --report to_hstring(hexchar2bin(line_in_content(4)));
+            --report to_hstring(tb_data_in);
+            --report to_hstring(tb_data_out);
             --report "STATE: " & to_hstring(tb_state);
             --report image_data;
 
@@ -167,10 +224,9 @@ begin
 
         end loop;
         file_close(file_in_pointer);
-        tb_eof_in <= '1'; -- Last line feeding into the NR_module
-
-        wait for 1 us;
-        report to_hstring(tb_data_in);
+        file_close(file_check_pointer);
+        
+        assert tb_eof_out = '1' report "eof_out is 1!" severity WARNING;
 
         wait for 100 ns;
         -- End test
